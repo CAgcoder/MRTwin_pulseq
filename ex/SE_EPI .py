@@ -1,17 +1,18 @@
 # %% S0. SETUP env
 import MRzeroCore as mr0
 import pypulseq as pp
-import util
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
+import util
 
 # makes the ex folder your working directory
 import os 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 os.chdir(os.path.abspath(os.path.dirname(__file__)))
 
-experiment_id = 'exB09_GRE_EPI_zigzag_noloop'
+
+experiment_id = 'spin_echo_EPI_zigzag_withloop'
 
 
 # %% S1. SETUP sys
@@ -25,69 +26,61 @@ system = pp.Opts(
 
 
 # %% S2. DEFINE the sequence
-seq = pp.Sequence()
+seq = pp.Sequence(system = system)
 
 # Define FOV and resolution
 fov = 1000e-3
 slice_thickness = 8e-3
 
-Nread = 64   # frequency encoding steps/samples
-Nphase = 64    # phase encoding steps/samples
+Nread = 64  # frequency encoding steps/samples
+Nphase = 64  # phase encoding steps/samples
 
 # Define rf events
 rf1, _, _ = pp.make_sinc_pulse(
     flip_angle=90 * np.pi / 180, duration=1e-3,
     slice_thickness=slice_thickness, apodization=0.5, time_bw_product=4,
     system=system, return_gz=True
-)
+) 
 rf2, _, _ = pp.make_sinc_pulse(
-    flip_angle=180 * np.pi / 180, duration=1e-3,
-    slice_thickness=slice_thickness, apodization=0.5, time_bw_product=4,
-    system=system, return_gz=True
-)
+     flip_angle=180 * np.pi / 180, duration=1e-3,
+     slice_thickness=slice_thickness, apodization=0.5, time_bw_product=4,
+     system=system, return_gz=True
+ )
+
 
 # Define other gradients and ADC events
 
-time = np.arange(0,100e-3,2.5e-4)
+gx = pp.make_trapezoid(channel='x', flat_area=Nread , flat_time=0.2e-3, system=system)
+gx_ = pp.make_trapezoid(channel='x', flat_area=-Nread , flat_time=0.2e-3, system=system)
 
-amplitude = np.zeros(len(time))
+gp = pp.make_trapezoid(channel='y', area=1, duration=1e-3, system=system)
 
-for i in range(len(amplitude)):
-    if i % 2 == 1:
-        amplitude[i] = (-1)**(i // 2) *  Nread/2.5e-4
+gz = pp.make_trapezoid(channel='z', flat_area=Nread, flat_time=0.2e-3, system=system)
+gz_ = pp.make_trapezoid(channel='z', flat_area=-Nread/2, flat_time=0.1e-3, system=system)
 
-
-gres=pp.make_extended_trapezoid(channel='x', times=time, amplitudes=amplitude)
-
-gp = pp.make_trapezoid(channel='y', area=Nread, duration=100e-3, system=system)
-
-gz = pp.make_trapezoid(channel='z', flat_area=Nread*10, flat_time=0.2e-2, system=system)
-gz_pre = pp.make_trapezoid(channel='z', flat_area=-Nread*10/2, flat_time=0.1e-2, system=system)
-
-gx_pre = pp.make_trapezoid(channel='x', area=Nread/2 , duration=1e-3, system=system)
+gx_pre = pp.make_trapezoid(channel='x', area=gx.area / 2, duration=1e-3, system=system)
 gy_pre = pp.make_trapezoid(channel='y', area=Nphase / 2, duration=1e-3, system=system)
 
+adc = pp.make_adc(num_samples=Nread, duration=0.2e-3, phase_offset=90* np.pi / 180, delay=gx.rise_time, system=system)
 
 
-adc = pp.make_adc(num_samples=Nread*Nread*4, duration=100e-3,phase_offset=90 * np.pi / 180, system=system)
 # ======
 # CONSTRUCT SEQUENCE
 # ======
 
-seq.add_block(rf1,gz) 
 
-seq.add_block(gz_pre)
-seq.add_block(gx_pre,gy_pre)
-seq.add_block(pp.make_delay(0.01-rf1.delay-rf2.delay))
+seq.add_block(rf1,gz)
+seq.add_block(gz_,gx_pre,gy_pre)
+
+seq.add_block(pp.make_delay(0.01 - rf1.delay - rf2.delay))
 seq.add_block(rf2,gz)
 seq.add_block(pp.make_delay(0.005))
 
-seq.add_block(gp,gres,adc)
-# seq.add_block()
 
-
-
-
+for ii in range(0, Nphase//2):  # e.g. -64:63    
+    seq.add_block(adc, gx,gp)
+    seq.add_block(adc,gx_,gp)
+    
 
 # %% S3. CHECK, PLOT and WRITE the sequence  as .seq
 # Check whether the timing of the sequence is correct
@@ -107,7 +100,6 @@ seq.set_definition('Name', 'gre')
 seq.write('out/external.seq')
 seq.write('out/' + experiment_id + '.seq')
 
-
 # %% S4: SETUP SPIN SYSTEM/object on which we can run the MR sequence external.seq fseq.add_block(gp)rom above
 sz = [64, 64]
 
@@ -119,7 +111,7 @@ if 1:
 
 # Manipulate loaded data
     obj_p.T2dash[:] = 30e-3
-    obj_p.D *= 0
+    obj_p.D *= 0 
     obj_p.B0 *= 1    # alter the B0 inhomogeneity
     # Store PD for comparison
     PD = obj_p.PD.squeeze()
@@ -162,8 +154,6 @@ signal = mr0.execute_graph(graph, seq0, obj_p,min_emitted_signal=1e-2,min_latent
 # PLOT sequence with signal in the ADC subplot
 plt.close(11);plt.close(12)
 sp_adc, t_adc = mr0.util.pulseq_plot(seq, clear=False, signal=signal.numpy())
-
-
  
 # additional noise as simulation is perfect
 
@@ -172,7 +162,7 @@ sp_adc, t_adc = mr0.util.pulseq_plot(seq, clear=False, signal=signal.numpy())
 fig = plt.figure()  # fig.clf()
 plt.subplot(411)
 plt.title('ADC signal')
-kspace_adc = torch.reshape((signal), (Nphase, Nread*4)).clone().t()
+kspace_adc = torch.reshape((signal), (Nphase, Nread)).clone().t()
 plt.plot(torch.real(signal), label='real')
 plt.plot(torch.imag(signal), label='imag')
 
