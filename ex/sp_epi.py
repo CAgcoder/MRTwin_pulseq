@@ -54,8 +54,7 @@ rf2, _, _ = pp.make_sinc_pulse(
 
 
 times = np.zeros(Nread)
-times = np.linspace(0, 0.5 ,3)
-dur_time = times[1]-times[0]
+times = np.linspace(0, 0.5 ,20)
 
 amplitudes = np.zeros(len(times))
 for i in range(len(amplitudes)):
@@ -79,7 +78,7 @@ gz_ = pp.make_trapezoid(channel='z', flat_area=-(Nread / fov)//2, flat_time=0.1e
 gx_pre = pp.make_trapezoid(channel='x', area=Nread/2, duration=1e-3, system=system)
 gy_pre = pp.make_trapezoid(channel='y', area=Nphase / 2, duration=1e-3, system=system)
 
-adc = pp.make_adc(num_samples=Nread*Nread, duration=0.52, phase_offset=0 * np.pi / 180, delay=0, system=system)
+adc = pp.make_adc(num_samples=Nread*Nread, duration=0.52, phase_offset=60 * np.pi / 180, delay=0.1, system=system)
 
 
 # ======
@@ -91,10 +90,8 @@ seq.add_block(rf1,gz)
 seq.add_block(gz_)
 
 seq.add_block(gx_pre,gy_pre)
-seq.add_block(pp.make_delay(0.5))
+seq.add_block(pp.make_delay(0.4))
 seq.add_block(rf2,gz)
-
-
 
   
 seq.add_block(adc, gx_extend,gp)
