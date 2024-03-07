@@ -11,7 +11,7 @@ import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 os.chdir(os.path.abspath(os.path.dirname(__file__)))
 
-experiment_id = 'exB09_GRE_EPI_2D'
+experiment_id = 'exB09_GRE_EPI_zigzag_noloop'
 
 
 # %% S1. SETUP sys
