@@ -1,22 +1,17 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Mar  6 22:39:51 2024
-
-@author: 54269
-"""
 # %% S0. SETUP env
 import MRzeroCore as mr0
 import pypulseq as pp
+import util
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
-import util
 
 # makes the ex folder your working directory
-import os
+import os 
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 os.chdir(os.path.abspath(os.path.dirname(__file__)))
 
-experiment_id = 'spin_echo_EPI_zigzag_noloop'
+experiment_id = 'exB09_GRE_EPI_2D'
 
 
 # %% S1. SETUP sys
@@ -30,76 +25,72 @@ system = pp.Opts(
 
 
 # %% S2. DEFINE the sequence
-seq = pp.Sequence(system = system)
+seq = pp.Sequence()
 
 # Define FOV and resolution
 fov = 1000e-3
 slice_thickness = 8e-3
 
-Nread = 64  # frequency encoding steps/samples
-Nphase = 64  # phase encoding steps/samples
+Nread = 64   # frequency encoding steps/samples
+Nphase = 64    # phase encoding steps/samples
 
 # Define rf events
 rf1, _, _ = pp.make_sinc_pulse(
     flip_angle=90 * np.pi / 180, duration=1e-3,
     slice_thickness=slice_thickness, apodization=0.5, time_bw_product=4,
     system=system, return_gz=True
-) 
+)
 rf2, _, _ = pp.make_sinc_pulse(
-     flip_angle=180 * np.pi / 180, duration=1e-3,
-     slice_thickness=slice_thickness, apodization=0.5, time_bw_product=4,
-     system=system, return_gz=True
- )
-
-
-
-times = np.zeros(Nread)
-times = np.linspace(0, 0.5 ,20)
-
-amplitudes = np.zeros(len(times))
-for i in range(len(amplitudes)):
-    if i % 4 < 2:
-        amplitudes[i] = Nread/1e-2
-    else:
-        amplitudes[i] = -Nread/1e-2
-# amplitudes[::2] = Nread/fov/1e-3
-# amplitudes[1::2] = -Nread/fov/1e-3
-
+    flip_angle=180 * np.pi / 180, duration=1e-3,
+    slice_thickness=slice_thickness, apodization=0.5, time_bw_product=4,
+    system=system, return_gz=True
+)
 
 # Define other gradients and ADC events
-gx_extend = pp.make_extended_trapezoid(channel='x',amplitudes = amplitudes/fov,times = times,system = system)
 
+gz = pp.make_trapezoid(channel='z', flat_area=Nread, flat_time=0.2e-3, system=system)
+gx_ = pp.make_trapezoid(channel='x', flat_area=-Nread, flat_time=0.2e-3, system=system)
 
-gp = pp.make_trapezoid(channel='y', area=Nphase/fov, duration=0.5, system=system)
-
-gz = pp.make_trapezoid(channel='z', flat_area=Nread / fov, flat_time=0.2e-3, system=system)
-gz_ = pp.make_trapezoid(channel='z', flat_area=-(Nread / fov)//2, flat_time=0.1e-3, system=system)
-
-gx_pre = pp.make_trapezoid(channel='x', area=Nread/2, duration=1e-3, system=system)
+adc = pp.make_adc(num_samples=Nread*Nread, duration=512e-3, system=system)
+gx_pre = pp.make_trapezoid(channel='x', area=Nread / 2, duration=1e-3, system=system)
+gz_pre = pp.make_trapezoid(channel='z', area=-gz.area / 2, duration=1e-3, system=system)
 gy_pre = pp.make_trapezoid(channel='y', area=Nphase / 2, duration=1e-3, system=system)
 
-adc = pp.make_adc(num_samples=Nread*Nread, duration=0.52, phase_offset=60 * np.pi / 180, delay=0.1, system=system)
-
-
+gp = pp.make_trapezoid(channel='y', area=Nread, duration=512e-3, system=system)
 # ======
 # CONSTRUCT SEQUENCE
 # ======
+time = np.arange(0,512e-3,2e-3)
+time = np.insert(time, 1, 1e-3)
+
+amplitude = np.zeros(len(time))
 
 
-seq.add_block(rf1,gz)
-seq.add_block(gz_)
 
-seq.add_block(gx_pre,gy_pre)
+
+for i in range(len(amplitude)):
+    if i % 2 == 1:
+        amplitude[i] = (-1)**(i // 2) *  Nread/2e-3
+
+
+
+gres=pp.make_extended_trapezoid(channel='x', times=time, amplitudes=amplitude)
+
+seq.add_block(rf1,gz) 
+
+seq.add_block(gz_pre)
+seq.add_block(gy_pre)
 seq.add_block(pp.make_delay(0.4))
 seq.add_block(rf2,gz)
+seq.add_block(pp.make_delay(0.16))
+seq.add_block(gp,gres,adc)
+# seq.add_block()
 
-  
-seq.add_block(adc, gx_extend,gp)
 
-    
 
-# %% S3. CHECK, PLOT and WRITE the sequence as .seq
 
+
+# %% S3. CHECK, PLOT and WRITE the sequence  as .seq
 # Check whether the timing of the sequence is correct
 ok, error_report = seq.check_timing()
 if ok:
@@ -109,7 +100,7 @@ else:
     [print(e) for e in error_report]
 
 # PLOT sequence
-sp_adc, t_adc = util.pulseq_plot(seq, clear=False, figid=(11,12))
+sp_adc, t_adc = mr0.util.pulseq_plot(seq, clear=False, figid=(11,12))
 
 # Prepare the sequence output for the scanner
 seq.set_definition('FOV', [fov, fov, slice_thickness])
@@ -117,8 +108,8 @@ seq.set_definition('Name', 'gre')
 seq.write('out/external.seq')
 seq.write('out/' + experiment_id + '.seq')
 
-
-# %% S4: SETUP Phantom on which we can run the MR sequence external.seq
+Nphase
+# %% S4: SETUP SPIN SYSTEM/object on which we can run the MR sequence external.seq fseq.add_block(gp)rom above
 sz = [64, 64]
 
 if 1:
@@ -126,17 +117,17 @@ if 1:
     # obj_p = mr0.VoxelGridPhantom.load_mat('../data/phantom2D.mat')
     obj_p = mr0.VoxelGridPhantom.load_mat('../data/numerical_brain_cropped.mat')
     obj_p = obj_p.interpolate(sz[0], sz[1], 1)
-    # Manipulate loaded data
+
+# Manipulate loaded data
     obj_p.T2dash[:] = 30e-3
     obj_p.D *= 0 
     obj_p.B0 *= 1    # alter the B0 inhomogeneity
-    # Store PD and B0 for comparison
+    # Store PD for comparison
     PD = obj_p.PD.squeeze()
     B0 = obj_p.B0.squeeze()
 else:
-    # or (ii) set phantom  manually to a pixel phantom.
+    # or (ii) set phantom  manually to a pixel phantom. Coordinate system is [-0.5, 0.5]^3
     obj_p = mr0.CustomVoxelPhantom(
-        # Coordinate system is [-0.5, 0.5]^3
         pos=[[-0.4, -0.4, 0], [-0.4, -0.2, 0], [-0.3, -0.2, 0], [-0.2, -0.2, 0], [-0.1, -0.2, 0]],
         PD=[1.0, 1.0, 0.5, 0.5, 0.5],
         T1=1.0,
@@ -150,11 +141,9 @@ else:
     # Store PD for comparison
     PD = obj_p.generate_PD_map()
     B0 = torch.zeros_like(PD)
-    
+
 obj_p.plot()
-
 obj_p.size=torch.tensor([fov, fov, slice_thickness]) 
-
 # Convert Phantom into simulation data
 obj_p = obj_p.build()
 
