@@ -11,7 +11,7 @@ import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 os.chdir(os.path.abspath(os.path.dirname(__file__)))
 
-experiment_id = 'exB09_GRE_EPI_2D'
+experiment_id = 'exB09_GRE_EPI_zigzag_noloop'
 
 
 # %% S1. SETUP sys
@@ -47,21 +47,21 @@ rf2, _, _ = pp.make_sinc_pulse(
 )
 
 # Define other gradients and ADC events
-
+# gz_pre = pp.make_trapezoid(channel='z', area=-Nread / 2, duration=1e-3, system=system)
 gz = pp.make_trapezoid(channel='z', flat_area=Nread, flat_time=0.2e-3, system=system)
-gx_ = pp.make_trapezoid(channel='x', flat_area=-Nread, flat_time=0.2e-3, system=system)
 
-adc = pp.make_adc(num_samples=Nread*Nread, duration=512e-3, system=system)
-gx_pre = pp.make_trapezoid(channel='x', area=Nread / 2, duration=1e-3, system=system)
-gz_pre = pp.make_trapezoid(channel='z', area=-gz.area / 2, duration=1e-3, system=system)
+
+adc = pp.make_adc(num_samples=Nread*Nread*4, duration=100e-3,phase_offset=60 * np.pi / 180, system=system)
+gx_pre = pp.make_trapezoid(channel='x', area=Nread/2 , duration=1e-3, system=system)
+
 gy_pre = pp.make_trapezoid(channel='y', area=Nphase / 2, duration=1e-3, system=system)
 
-gp = pp.make_trapezoid(channel='y', area=Nread, duration=512e-3, system=system)
+gp = pp.make_trapezoid(channel='y', area=Nread, duration=100e-3, system=system)
 # ======
 # CONSTRUCT SEQUENCE
 # ======
-time = np.arange(0,512e-3,2e-3)
-time = np.insert(time, 1, 1e-3)
+time = np.arange(0,100e-3,1e-4)
+# time = np.insert(time, 1, 1e-3)
 
 amplitude = np.zeros(len(time))
 
@@ -70,19 +70,19 @@ amplitude = np.zeros(len(time))
 
 for i in range(len(amplitude)):
     if i % 2 == 1:
-        amplitude[i] = (-1)**(i // 2) *  Nread/2e-3
+        amplitude[i] = (-1)**(i // 2) *  Nread/1e-4
 
 
 
 gres=pp.make_extended_trapezoid(channel='x', times=time, amplitudes=amplitude)
 
-seq.add_block(rf1,gz) 
+seq.add_block(rf1) 
 
-seq.add_block(gz_pre)
-seq.add_block(gy_pre)
-seq.add_block(pp.make_delay(0.4))
-seq.add_block(rf2,gz)
-seq.add_block(pp.make_delay(0.16))
+# seq.add_block(gz_pre)
+seq.add_block(gx_pre,gy_pre)
+seq.add_block(pp.make_delay(0.06))
+seq.add_block(rf2)
+seq.add_block(pp.make_delay(0.02))
 seq.add_block(gp,gres,adc)
 # seq.add_block()
 
@@ -158,21 +158,20 @@ seq0.plot_kspace_trajectory()
 kspace_loc = seq0.get_kspace()
 # Simulate the sequence
 graph = mr0.compute_graph(seq0, obj_p, 200, 1e-3)
-signal = mr0.execute_graph(graph, seq0, obj_p)
+signal = mr0.execute_graph(graph, seq0, obj_p,min_emitted_signal=1e-2,min_latent_signal=1e-2)
 
 # PLOT sequence with signal in the ADC subplot
 plt.close(11);plt.close(12)
 sp_adc, t_adc = mr0.util.pulseq_plot(seq, clear=False, signal=signal.numpy())
  
 # additional noise as simulation is perfect
-signal += 1e-5 * np.random.randn(signal.shape[0], 2).view(np.complex128)
 
 
 # %% S6: MR IMAGE RECON of signal ::: #####################################
 fig = plt.figure()  # fig.clf()
 plt.subplot(411)
 plt.title('ADC signal')
-kspace_adc = torch.reshape((signal), (Nphase, Nread)).clone().t()
+kspace_adc = torch.reshape((signal), (Nphase, Nread*4)).clone().t()
 plt.plot(torch.real(signal), label='real')
 plt.plot(torch.imag(signal), label='imag')
 
@@ -254,12 +253,12 @@ plt.subplot(3, 4, 12)
 plt.title('phantom B0')
 util.MR_imshow(B0)
 
-# Plot k-spaces
-ktraj_adc, ktraj, t_excitation, t_refocusing, _ = seq.calculate_kspace()
-plt.plot(ktraj.T)  # Plot the entire k-space trajectory
-plt.figure()
-plt.plot(ktraj[0], ktraj[1], 'b')  # 2D plot
-plt.axis('equal')  # Enforce aspect ratio for the correct trajectory display
-plt.plot(ktraj_adc[0], ktraj_adc[1], 'r.')
-plt.show()
+# # Plot k-spaces
+# ktraj_adc, ktraj, t_excitation, t_refocusing, _ = seq.calculate_kspace()
+# plt.plot(ktraj.T)  # Plot the entire k-space trajectory
+# plt.figure()
+# plt.plot(ktraj[0], ktraj[1], 'b')  # 2D plot
+# plt.axis('equal')  # Enforce aspect ratio for the correct trajectory display
+# plt.plot(ktraj_adc[0], ktraj_adc[1], 'r.')
+# plt.show()
 
